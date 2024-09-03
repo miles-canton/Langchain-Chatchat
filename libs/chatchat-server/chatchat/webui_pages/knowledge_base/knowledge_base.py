@@ -409,6 +409,7 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                 st.session_state["current_df"] = pd.DataFrame(data)
                 st.session_state["grid_options"] = None  # 触发重新配置表格选项
             else:
+                pass
                 # print("文件名未变动且docs存在，使用缓存的docs")
 
             # 仅当表格选项未设置时，配置新的Grid表格选项
@@ -435,7 +436,7 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                     "to_del",
                     "删除",
                     editable=True,
-                    width=30,
+                    width=50,
                     wrapHeaderText=True,
                     cellEditor="agCheckboxCellEditor",
                     cellRenderer="agCheckboxCellRenderer",
@@ -444,6 +445,7 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                     enabled=True, paginationAutoPageSize=False, paginationPageSize=10
                 )
                 gb.configure_selection()
+
                 st.session_state["grid_options"] = gb.build()
                 # print("Grid 表格选项已配置并存储在 session state 中")
             
@@ -453,13 +455,13 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                 edit_docs = AgGrid(
                     st.session_state["current_df"], 
                     st.session_state["grid_options"], 
-                    columns_auto_size_mode="FIT_CONTENTS",
+                    height=800,
+                    autoSizeStrategy={'type':'fitGridWidth'},
                     theme="alpine",
                     custom_css={
                                 "#gridToolBar": {"display": "none"},
                             },
                     fit_columns_on_grid_load=True, 
-                    allow_unsafe_jscode=True,
                     enable_enterprise_modules=False,
 
                 )
@@ -503,8 +505,8 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                 if is_changed:
                     if api.update_kb_docs(
                         knowledge_base_name=selected_kb,
-                        file_names=[st.session_state["file_name"]],
-                        docs={file_name: changed_docs},
+                        file_names=[current_file_name],
+                        docs={current_file_name: changed_docs},
                     ):
                         st.toast("更新文档成功")
                     else:
