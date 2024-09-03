@@ -179,7 +179,7 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
             expanded=True,
         ):
             cols = st.columns(3)
-            chunk_size = cols[0].number_input("单段文本最大长度：", 1, 1000, Settings.kb_settings.CHUNK_SIZE)
+            chunk_size = cols[0].number_input("单段文本最大长度：", 1, 10000, Settings.kb_settings.CHUNK_SIZE)
             chunk_overlap = cols[1].number_input(
                 "相邻文本重合长度：", 0, chunk_size, Settings.kb_settings.OVERLAP_SIZE
             )
@@ -363,57 +363,109 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
             top_k = st.slider("匹配条数", 1, 100, 3)
 
         st.write("文件内文档列表。双击进行修改，在删除列填入 Y 可删除对应行。")
-        docs = []
+        # docs = []
         df = pd.DataFrame([], columns=["seq", "id", "content", "source"])
         if selected_rows:
-            file_name = selected_rows[0]["file_name"]
-            docs = api.search_kb_docs(
-                knowledge_base_name=selected_kb, file_name=file_name
-            )
+            # 获取当前选中的文件名
+            current_file_name = selected_rows[0]["file_name"]
+            
 
-            data = [
-                {
-                    "seq": i + 1,
-                    "id": x["id"],
-                    "page_content": x["page_content"],
-                    "source": x["metadata"].get("source"),
-                    "type": x["type"],
-                    "metadata": json.dumps(x["metadata"], ensure_ascii=False),
-                    "to_del": "",
-                }
-                for i, x in enumerate(docs)
-            ]
-            df = pd.DataFrame(data)
+            # 如果 session state 中没有存储 file_name 和 docs，则初始化它们
+            if "file_name" not in st.session_state or "docs" not in st.session_state:
+                # print("初始化 session state 中的 file_name 和 docs")
+                st.session_state["kb"] = kb
+                st.session_state["file_name"] = None
+                st.session_state["docs"] = []
+                st.session_state["current_df"] = df  # 初始化数据框
+                st.session_state["grid_options"] = None  # 初始化表格选项
+                # print(f"已获取docs, 文档数量: {len(st.session_state['docs'])}")
+            
+            # 如果 file_name 发生变化或 docs 为空，更新 docs
+            if current_file_name != st.session_state["file_name"] or not st.session_state["docs"] or  st.session_state["kb"] != kb:
+                # print(f"文件名已改变或 docs 为空: {st.session_state['file_name']} -> {current_file_name}")
+                st.session_state["file_name"] = current_file_name
+                st.session_state["kb"] = kb
+                st.session_state["docs"] = api.search_kb_docs(
+                    knowledge_base_name=selected_kb, file_name=current_file_name
+                )
+                # print(f"已更新docs, 文档数量: {len(st.session_state['docs'])}")
 
-            gb = GridOptionsBuilder.from_dataframe(df)
-            gb.configure_columns(["id", "source", "type", "metadata"], hide=True)
-            gb.configure_column("seq", "No.", width=50)
-            gb.configure_column(
-                "page_content",
-                "内容",
-                editable=True,
-                autoHeight=True,
-                wrapText=True,
-                flex=1,
-                cellEditor="agLargeTextCellEditor",
-                cellEditorPopup=True,
-            )
-            gb.configure_column(
-                "to_del",
-                "删除",
-                editable=True,
-                width=50,
-                wrapHeaderText=True,
-                cellEditor="agCheckboxCellEditor",
-                cellRender="agCheckboxCellRenderer",
-            )
-            # 启用分页
-            gb.configure_pagination(
-                enabled=True, paginationAutoPageSize=False, paginationPageSize=10
-            )
-            gb.configure_selection()
-            edit_docs = AgGrid(df, gb.build(), fit_columns_on_grid_load=True)
+                # 将 docs 数据转换为显示在表格中的格式
+                data = [
+                    {
+                        "seq": i + 1,
+                        "id": x["id"],
+                        "page_content": x["page_content"],
+                        "source": x["metadata"].get("source"),
+                        "type": x["type"],
+                        "metadata": json.dumps(x["metadata"], ensure_ascii=False),
+                        "to_del": False,  # 初始化时设置为 False
+                    }
+                    for i, x in enumerate(st.session_state["docs"])
+                ]
+                # print(f"生成了 {len(data)} 条数据用于表格显示")
 
+                # 更新 DataFrame 在 session state 中
+                st.session_state["current_df"] = pd.DataFrame(data)
+                st.session_state["grid_options"] = None  # 触发重新配置表格选项
+            else:
+                # print("文件名未变动且docs存在，使用缓存的docs")
+
+            # 仅当表格选项未设置时，配置新的Grid表格选项
+            if st.session_state["grid_options"] is None:
+                # print("配置新的 Grid 表格选项")
+                df = st.session_state["current_df"]
+                gb = GridOptionsBuilder.from_dataframe(df)
+                gb.configure_columns(["id", "source", "type", "metadata"], hide=True)
+                gb.configure_column("seq", "No.", width=20)
+                gb.configure_column(
+                    "page_content",
+                    "内容",
+                    editable=True,
+                    autoHeight=True,
+                    wrapText=True,
+                    flex=1,
+                    cellEditor="agLargeTextCellEditor",
+                    cellEditorPopup=True,
+                    cellEditorParams={
+                                        "maxLength": 10000  
+                                        }
+                )
+                gb.configure_column(
+                    "to_del",
+                    "删除",
+                    editable=True,
+                    width=30,
+                    wrapHeaderText=True,
+                    cellEditor="agCheckboxCellEditor",
+                    cellRenderer="agCheckboxCellRenderer",
+                )
+                gb.configure_pagination(
+                    enabled=True, paginationAutoPageSize=False, paginationPageSize=10
+                )
+                gb.configure_selection()
+                st.session_state["grid_options"] = gb.build()
+                # print("Grid 表格选项已配置并存储在 session state 中")
+            
+            # 仅当数据或选项更改时，渲染 Grid 表格
+            if st.session_state["current_df"] is not None:
+                # print("渲染 Grid 表格...")
+                edit_docs = AgGrid(
+                    st.session_state["current_df"], 
+                    st.session_state["grid_options"], 
+                    columns_auto_size_mode="FIT_CONTENTS",
+                    theme="alpine",
+                    custom_css={
+                                "#gridToolBar": {"display": "none"},
+                            },
+                    fit_columns_on_grid_load=True, 
+                    allow_unsafe_jscode=True,
+                    enable_enterprise_modules=False,
+
+                )
+                # print("Grid 表格渲染完成")
+
+            # 当用户点击 "保存更改" 按钮时处理保存逻辑
             if st.button("保存更改"):
                 origin_docs = {
                     x["id"]: {
@@ -421,13 +473,15 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                         "type": x["type"],
                         "metadata": x["metadata"],
                     }
-                    for x in docs
+                    for x in st.session_state['docs']
                 }
                 changed_docs = []
+                is_changed = False
                 for index, row in edit_docs.data.iterrows():
                     origin_doc = origin_docs[row["id"]]
                     if row["page_content"] != origin_doc["page_content"]:
                         if row["to_del"] not in ["Y", "y", 1]:
+                            is_changed = True
                             changed_docs.append(
                                 {
                                     "page_content": row["page_content"],
@@ -435,11 +489,21 @@ def knowledge_base_page(api: ApiRequest, is_lite: bool = None):
                                     "metadata": json.loads(row["metadata"]),
                                 }
                             )
-
-                if changed_docs:
+                    elif row["to_del"] in ["Y", "y", 1]:
+                        is_changed = True
+                    else:
+                        changed_docs.append(
+                            {
+                                "page_content": row["page_content"],
+                                "type": row["type"],
+                                "metadata": json.loads(row["metadata"]),
+                            }
+                        )
+                        
+                if is_changed:
                     if api.update_kb_docs(
                         knowledge_base_name=selected_kb,
-                        file_names=[file_name],
+                        file_names=[st.session_state["file_name"]],
                         docs={file_name: changed_docs},
                     ):
                         st.toast("更新文档成功")
